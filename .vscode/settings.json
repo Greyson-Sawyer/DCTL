@@ -1,0 +1,6 @@
+{
+	"files.associations": {
+		"*.dctl": "csharp",
+		"*.txt": "cpp"
+	}
+}

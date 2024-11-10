@@ -1,0 +1,675 @@
+// Color Space Transform Utility
+// Created by Greyson Sawyer
+
+// This DCTL works the same way as the Color Space Transform plugin.
+// Designed to be a reference to help build DCTLs 
+// Please copy and paste to your heart's desire 💚
+
+// Process:
+// 1. Input gamma --> linear.
+// 2. Tone mapping (if enabled).
+// 3. Input color space --> XYZ color space.
+// 4. XYZ color space --> output color space.
+// 5. Linear --> output gamma.
+
+/* 🫸               🫷
+   🫸 UI Parameters 🫷
+   🫸               🫷 */
+
+// Input Color Space
+DEFINE_UI_PARAMS(input_color_space, Input Color Space, DCTLUI_COMBO_BOX, 4, { i_AP0, i_AP1, i_AppleWG, i_AWG3, i_AWG4, i_DWG, i_FujiFGamut, i_RWG, i_SonySGamut3Cine, i_P3DCI, i_P3D60, i_P3D65, i_REC2020, i_REC709, i_XYZ }, { ACES (AP0), ACES (AP1), Apple Wide Gamut RGB, ARRI Wide Gamut 3, ARRI Wide Gamut 4, DaVinci Wide Gamut, Fuji F-Gamut, REDWideGamutRGB, Sony S-Gamut3.Cine, P3-DCI, P3-D60, P3-D65, Rec.2020, Rec.709, XYZ (CIE) })
+
+// Input Gamma
+DEFINE_UI_PARAMS(input_gamma, Input Gamma, DCTLUI_COMBO_BOX, 3, { i_ACEScc, i_ACEScct, i_LOGc3, i_LOGc4, i_AppleLog, i_DI, i_FLog, i_FLog2, i_R3G10, i_SLog3, i_G2_2, i_G2_4, i_G2_6, i_Linear }, { ACEScc, ACEScct, ARRI LogC3, ARRI LogC4, Apple Log, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, RED Log3G10, Sony S-Log3, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear })
+
+// Output Color Space
+DEFINE_UI_PARAMS(output_color_space, Output Color Space, DCTLUI_COMBO_BOX, 13, { o_AP0, o_AP1, o_AppleWG, o_AWG3, o_AWG4, o_DWG, o_FujiFGamut, o_RWG, o_SonySGamut3Cine, o_P3DCI, o_P3D60, o_P3D65, o_REC2020, o_REC709, o_XYZ }, { ACES (AP0), ACES (AP1), Apple Wide Gamut RGB, ARRI Wide Gamut 3, ARRI Wide Gamut 4, DaVinci Wide Gamut, Fuji F-Gamut, REDWideGamutRGB, Sony S-Gamut3.Cine, P3-DCI, P3-D60, P3-D65, Rec.2020, Rec.709, XYZ (CIE) })
+
+// Output Gamma
+DEFINE_UI_PARAMS(output_gamma, Output Gamma, DCTLUI_COMBO_BOX, 11, { o_ACEScc, o_ACEScct, o_LOGc3, o_LOGc4, o_AppleLog, o_DI, o_FLog, o_FLog2, o_R3G10, o_SLog3, o_G2_2, o_G2_4, o_G2_6, o_Linear }, { ACEScc, ACEScct, ARRI LogC3, ARRI LogC4, Apple Log, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, RED Log3G10, Sony S-Log3, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear })
+
+
+// Tone Mapping
+DEFINE_UI_PARAMS(user_tone_mapping, Tone Mapping, DCTLUI_CHECK_BOX, 0)
+DEFINE_UI_PARAMS(max_input_nits, Max Input Nits, DCTLUI_SLIDER_FLOAT, 10000.0, 48.0, 10000.0, 1.0)
+DEFINE_UI_PARAMS(max_output_nits, Max Output Nits, DCTLUI_SLIDER_FLOAT, 100.0, 48.0, 10000.0, 1.0)
+
+
+// To avoid errors with negative values
+__DEVICE__ float powf(float base, float exp) {
+    return _copysignf(_powf(_fabs(base), exp), base);
+}
+
+/* 📈                 📈
+   📈 Gamma functions 📈
+   📈                 📈 */
+ 
+
+//--------------------------------------------------------------------------------------------------
+// ACEScc Encoding Functions
+// Reference: https://docs.acescentral.com/specifications/acescc/
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float acescc_to_linear(float in) {
+    const float a = 17.52f;
+    const float b = 9.72f;
+    const float cut1 = -0.301369863013699f; // (-b/a)
+    const float cut2 = 1.468f;
+
+    float out;
+    if (in <= cut1) {
+        out = (powf(2.0f, (in * a - b)) - powf(2.0f, -16.0f)) * 0.5f;
+    } else if (in < cut2) {
+        out = powf(2.0f, (in * a - b));
+    } else {
+        out = 65504.0f; // Maximum value for half-precision float
+    }
+    return out;
+}
+
+__DEVICE__ float linear_to_acescc(float in) {
+    const float a = 17.52f;
+    const float b = 9.72f;
+    const float c = powf(2.0f, -16.0f);
+    const float cut = c * 0.5f;
+
+    float out;
+    if (in <= 0.0f) {
+        out = (-16.0f + b) / a;
+    } else if (in < cut) {
+        out = (_log2f(c + in * 0.5f) + b) / a;
+    } else {
+        out = (_log2f(in) + b) / a;
+    }
+    return out;
+}
+
+//--------------------------------------------------------------------------------------------------
+// ACEScct Encoding Functions
+// Reference: https://docs.acescentral.com/specifications/acescct/
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float acescct_to_linear(float in) {
+    const float a = 17.52f;
+    const float b = 9.72f;
+    const float m = 10.5402377416545f;
+    const float k0 = 0.0729055341958355f;
+    const float k1 = 0.155251141552511f;
+    const float cut2 = 1.468f;
+
+    float out;
+    if (in <= k1) {
+        out = (in - k0) / m;
+    } else if (in < cut2) {
+        out = powf(2.0f, (in * a - b));
+    } else {
+        out = 65504.0f;
+    }
+    return out;
+}
+
+__DEVICE__ float linear_to_acescct(float in) {
+    const float a = 17.52f;
+    const float b = 9.72f;
+    const float m = 10.5402377416545f;
+    const float k0 = 0.0729055341958355f;
+    const float c1 = 0.0078125f;
+
+    float out;
+    if (in <= c1) {
+        out = m * in + k0;
+    } else {
+        out = (_log2f(in) + b) / a;
+    }
+    return out;
+}
+
+//--------------------------------------------------------------------------------------------------
+// ARRI LogC3 Encoding Functions
+// Reference: https://www.arri.com/resource/blob/31918/66f56e6abb6e5b6553929edf9aa7483e/2017-03-alexa-logc-curve-in-vfx-data.pdf
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float logc3_to_linear(float in) {
+    const float a = 5.555556f;
+    const float b = 0.052272f;
+    const float c = 0.247190f;
+    const float d = 0.385537f;
+    const float e = 5.367655f;
+    const float f = 0.092809f;
+    const float cut = 0.149658f; // Precomputed e * cut + f
+
+    float out;
+    if (in > cut) {
+        out = (powf(10.0f, (in - d) / c) - b) / a;
+    } else {
+        out = (in - f) / e;
+    }
+    return out;
+}
+
+__DEVICE__ float linear_to_logc3(float in) {
+    const float a = 5.555556f;
+    const float b = 0.052272f;
+    const float c = 0.247190f;
+    const float d = 0.385537f;
+    const float e = 5.367655f;
+    const float f = 0.092809f;
+    const float cut = 0.010591f;
+
+    float out;
+    if (in > cut) {
+        out = c * _log10f(a * in + b) + d;
+    } else {
+        out = e * in + f;
+    }
+    return out;
+}
+
+//--------------------------------------------------------------------------------------------------
+// ARRI LogC4 Encoding Functions
+// Reference: https://www.arri.com/resource/blob/278790/db65b86066de1f74852edb8f15acf082/2023-05-arri-logc4-specification-data.pdf
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float logc4_to_linear(float in) {
+    const float a = 2231.91177f;
+    const float b = 0.9070295f;
+    const float c = 0.0929705f;
+    const float s = 0.11343535f;
+    const float t = -0.01807264f;
+
+    float out;
+    if (in < 0.0f) {
+        out = in * s + t;
+    } else {
+        float p = 14.0f * (in - c) / b + 6.0f;
+        out = (powf(2.0f, p) - 64.0f) / a;
+    }
+    return out;
+}
+
+__DEVICE__ float linear_to_logc4(float in) {
+    const float a = 2231.91177f;
+    const float b = 0.9070295f;
+    const float c = 0.0929705f;
+    const float s = 0.11343535f;
+    const float t = -0.01807264f;
+
+    float out;
+    if (in < t) {
+        out = (in - t) / s;
+    } else {
+        out = ((_log2f(a * in + 64.0f) - 6.0f) / 14.0f) * b + c;
+    }
+    return out;
+}
+
+//--------------------------------------------------------------------------------------------------
+// DaVinci Intermediate Encoding Functions
+// Reference: https://documents.blackmagicdesign.com/InformationNotes/DaVinci_Resolve_17_Wide_Gamut_Intermediate.pdf?_v=1628751610000
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float di_to_linear(float in) {
+    const float A = 0.0075f;
+    const float B = 7.0f;
+    const float C = 0.07329248f;
+    const float M = 10.44426855f;
+    const float log_cut = 0.02740668f;
+
+    float out;
+    if (in > log_cut) {
+        out = powf(2.0f, (in / C) - B) - A;
+    } else {
+        out = in / M;
+    }
+    return out;
+}
+
+__DEVICE__ float linear_to_di(float in) {
+    const float A = 0.0075f;
+    const float B = 7.0f;
+    const float C = 0.07329248f;
+    const float M = 10.44426855f;
+    const float lin_cut = 0.00262409f;
+
+    float out;
+    if (in > lin_cut) {
+        out = (_log2f(in + A) + B) * C;
+    } else {
+        out = in * M;
+    }
+    return out;
+}
+
+//--------------------------------------------------------------------------------------------------
+// Gamma 2.2, 2.4, 2.6 Functions
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float gamma22_to_linear(float in) {
+    return powf(in, 2.2f);
+}
+
+__DEVICE__ float gamma24_to_linear(float in) {
+    return powf(in, 2.4f);
+}
+
+__DEVICE__ float gamma26_to_linear(float in) {
+    return powf(in, 2.6f);
+}
+
+__DEVICE__ float linear_to_gamma22(float in) {
+    return powf(in, 1.0f / 2.2f);
+}
+
+__DEVICE__ float linear_to_gamma24(float in) {
+    return powf(in, 1.0f / 2.4f);
+}
+
+__DEVICE__ float linear_to_gamma26(float in) {
+    return powf(in, 1.0f / 2.6f);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Apple Log Encoding Functions
+// Reference: Apple Technical Specifications
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float apple_log_to_linear(float x) {
+    const float R0 = -0.05641088f;
+    const float Rt = 0.01f;
+    const float c = 47.28711236f;
+    const float b = 0.00964052f;
+    const float y = 0.08550479f;
+    const float d = 0.69336945f;
+    const float Pt = c * powf(Rt - R0, 2.0f);
+
+    float out;
+    if (x >= Pt) {
+        out = _exp2f((x - d) / y) - b;
+    } else if (x > 0.0f) {
+        out = _sqrtf(x / c) + R0;
+    } else {
+        out = R0;
+    }
+    return out;
+}
+
+__DEVICE__ float linear_to_apple_log(float x) {
+    const float R0 = -0.05641088f;
+    const float Rt = 0.01f;
+    const float c = 47.28711236f;
+    const float b = 0.00964052f;
+    const float y = 0.08550479f;
+    const float d = 0.69336945f;
+
+    float out;
+    if (x >= Rt) {
+        out = y * _log2f(x + b) + d;
+    } else if (x > R0) {
+        out = c * powf(x - R0, 2.0f);
+    } else {
+        out = 0.0f;
+    }
+    return out;
+}
+
+//--------------------------------------------------------------------------------------------------
+// Fuji F-Log Encoding Functions
+// Reference: Fujifilm Technical Specifications
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float flog_to_linear(float t) {
+    const float a = 0.555556f;
+    const float b = 0.009468f;
+    const float c = 0.344676f;
+    const float d = 0.790453f;
+    const float e = 8.735631f;
+    const float f = 0.092864f;
+    const float cut2 = 0.100537775223865f;
+
+    if (t >= cut2) {
+        return (powf(10.0f, (t - d) / c) - b) / a;
+    } else {
+        return (t - f) / e;
+    }
+}
+
+__DEVICE__ float linear_to_flog(float x) {
+    const float a = 0.555556f;
+    const float b = 0.009468f;
+    const float c = 0.344676f;
+    const float d = 0.790453f;
+    const float e = 8.735631f;
+    const float f = 0.092864f;
+    const float cut1 = 0.00089f;
+
+    if (x >= cut1) {
+        return c * _log10f(a * x + b) + d;
+    } else {
+        return e * x + f;
+    }
+}
+
+//--------------------------------------------------------------------------------------------------
+// Fuji F-Log2 Encoding Functions
+// Reference: Fujifilm Technical Specifications
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float flog2_to_linear(float t) {
+    const float a = 5.555556f;
+    const float b = 0.064829f;
+    const float c = 0.245281f;
+    const float d = 0.384316f;
+    const float e = 8.799461f;
+    const float f = 0.092864f;
+    const float cut1 = 0.000889f;
+    const float cut2 = 0.100686685370811f;
+
+    if (t >= cut2) {
+        return (powf(10.0f, (t - d) / c) - b) / a;
+    } else {
+        return (t - f) / e;
+    }
+}
+
+__DEVICE__ float linear_to_flog2(float x) {
+    const float a = 5.555556f;
+    const float b = 0.064829f;
+    const float c = 0.245281f;
+    const float d = 0.384316f;
+    const float e = 8.799461f;
+    const float f = 0.092864f;
+    const float cut1 = 0.000889f;
+    const float cut2 = 0.100686685370811f;
+
+    if (x >= cut1) {
+        return c * _log10f(a * x + b) + d;
+    } else {
+        return e * x + f;
+    }
+}
+//--------------------------------------------------------------------------------------------------
+// RED Log3G10 Encoding Functions
+// Reference: RED DIGITAL CINEMA LOG3G10 Specification
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float log3g10_to_linear(float x) {
+    const float a = 0.224282f;
+    const float b = 155.975327f;
+    const float c = 0.01f;
+    const float g = 15.1927f;
+
+    float out;
+    if (x < 0.0f) {
+        out = (x / g) - c;
+    } else {
+        out = (powf(10.0f, x / a) - 1.0f) / b - c;
+    }
+    return out;
+}
+
+__DEVICE__ float linear_to_log3g10(float x) {
+    const float a = 0.224282f;
+    const float b = 155.975327f;
+    const float c = 0.01f;
+    const float g = 15.1927f;
+
+    x = x + c;
+
+    float out;
+    if (x < 0.0f) {
+        out = x * g;
+    } else {
+        out = a * _log10f(x * b + 1.0f);
+    }
+    return out;
+}
+
+
+//--------------------------------------------------------------------------------------------------
+// Sony S-Log3 Encoding Functions
+// Reference: https://pro.sony/s3/cms-static-content/uploadfile/06/1237494271406.pdf
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float slog3_to_linear(float in) {
+    const float cut1 = 171.2102947f / 1023.0f; // Approximately 0.1679077f
+    const float a = 10.0f;
+    const float b = 0.18f + 0.01f; // 0.19f
+    const float c = -0.01f;
+    const float d = 0.01125000f;
+    const float e = 95.0f;
+    const float f = 171.2102947f;
+    const float denom = f - e; // 76.2102947f
+
+    float out;
+    if (in >= cut1) {
+        float num = in * 1023.0f - 420.0f;
+        float exponent = num / 261.5f;
+        out = powf(a, exponent) * b + c;
+    } else {
+        float num = in * 1023.0f - e;
+        out = num * d / denom;
+    }
+    return out;
+}
+
+__DEVICE__ float linear_to_slog3(float in) {
+    const float cut2 = 0.01125000f;
+    const float a = 420.0f;
+    const float b = 261.5f;
+    const float c = 0.18f + 0.01f; // 0.19f
+    const float d = 95.0f;
+    const float e = 171.2102947f;
+    const float denom = 0.01125000f;
+    const float num_factor = e - d; // 76.2102947f
+
+    float out;
+    if (in >= cut2) {
+        out = (a + _log10f((in + 0.01f) / c) * b) / 1023.0f;
+    } else {
+        out = (in * num_factor / denom + d) / 1023.0f;
+    }
+    return out;
+}
+
+//--------------------------------------------------------------------------------------------------
+// Gamma Switch Statements
+//--------------------------------------------------------------------------------------------------
+
+__DEVICE__ float gamma_to_linear(float in, int gamma_type) {
+    switch (gamma_type) {
+        case 0:  return acescc_to_linear(in);
+        case 1:  return acescct_to_linear(in);
+        case 2:  return logc3_to_linear(in);
+        case 3:  return logc4_to_linear(in);
+        case 4:  return apple_log_to_linear(in);
+        case 5:  return di_to_linear(in);
+        case 6:  return flog_to_linear(in);
+        case 7:  return flog2_to_linear(in);
+        case 8:  return log3g10_to_linear(in);
+        case 9:  return slog3_to_linear(in);
+        case 10: return gamma22_to_linear(in);
+        case 11: return gamma24_to_linear(in);
+        case 12: return gamma26_to_linear(in);
+        case 13: return in; // Linear
+        default: return in; // Linear
+    }
+}
+
+__DEVICE__ float linear_to_gamma(float in, int gamma_type) {
+    switch (gamma_type) {
+        case 0:  return linear_to_acescc(in);
+        case 1:  return linear_to_acescct(in);
+        case 2:  return linear_to_logc3(in);
+        case 3:  return linear_to_logc4(in);
+        case 4:  return linear_to_apple_log(in);
+        case 5:  return linear_to_di(in);
+        case 6:  return linear_to_flog(in);
+        case 7:  return linear_to_flog2(in);
+        case 8:  return linear_to_log3g10(in);
+        case 9:  return linear_to_slog3(in);
+        case 10: return linear_to_gamma22(in);
+        case 11: return linear_to_gamma24(in);
+        case 12: return linear_to_gamma26(in);
+        case 13: return in; // Linear
+        default: return in; // Linear
+    }
+}
+
+
+
+/* 🌈                      🌈 
+   🌈 Color Space Matrices 🌈 
+   🌈                      🌈 */
+
+
+//--------------------------------------------------------------------------------------------------
+// Color Space Matrices
+// Created using Color Space Calculator:
+// https://haraldbrendel.com/colorspacecalculator.html
+// And Colour Science's RGB Colourspace Transformation Matrix Calculator:
+// https://www.colour-science.org:8010/apps/rgb_colourspace_transformation_matrix?input-colourspace=DCDM+XYZ&output-colourspace=F-Gamut&chromatic-adaptation-transform=CAT02&formatter=spimtx&decimals=10
+// Used CAT02 for Chromatic Adaptation (for shifts in white point)
+// (In the Resolve Color Space Transform plugin, there's an option to "Use White Point Adaptation"
+// for simplicity, this DCTL always uses white point adaptation)
+//--------------------------------------------------------------------------------------------------
+
+__CONSTANT__ float input_to_xyz_matrices[15][9] = {
+    // ACES (AP0) to XYZ
+    { 0.9865190867, 0.0239710338, -0.0104901205, 0.3596892056, 0.7145861558, -0.0742753614, -0.0003859199, 0.0000294397, 1.0003564803 },
+    // ACES (AP1) to XYZ
+    { 0.6872086492, 0.1593471996, 0.1534441512, 0.2825666760, 0.6646107144, 0.0528226096, -0.0057949226, 0.0039976629, 1.0017972596 },
+    // Apple Wide Gamut RGB to XYZ
+    { 0.6708365530, 0.1770960214, 0.1520674256, 0.2767901798, 0.6703353325, 0.0528744876, -0.0007465395, 0.0250331578, 0.9757133817 },
+    // ARRI Wide Gamut 3 to XYZ
+    { 0.6730620361, 0.2579995230, 0.0689385104, 0.3055464219, 0.8166532038, -0.1221996261, 0.0017970073, -0.0626457618, 1.0608489836 },
+    // ARRI Wide Gamut 4 to XYZ
+    { 0.7408587166, 0.1666331576, 0.0925081259, 0.2707356648, 0.7718831293, -0.0426187940, -0.0007899156, -0.0008805599, 1.0016704755 },
+    // DaVinci Wide Gamut to XYZ
+    { 0.7396425052, 0.1934275669, 0.0669299278, 0.2908353452, 0.8643581278, -0.1551934730, -0.0918330386, -0.1278242346, 1.2196572732 },
+    // Fuji F-Gamut to XYZ
+    { 0.6708365530, 0.1770960214, 0.1520674256, 0.2767901798, 0.6703353325, 0.0528744876, -0.0007465395, 0.0250331578, 0.9757133817 },
+    // REDWideGamutRGB to XYZ
+    { 0.7756070000, 0.1141060000, 0.1102870000, 0.3040190000, 0.8339320000, -0.1379510000, -0.0741360000, -0.3203840000, 1.3945200000 },
+    // Sony S-Gamut3.Cine to XYZ
+    { 0.6303970000, 0.2950390000, 0.0745640000, 0.2291890000, 0.8774470000, -0.1066360000, -0.0301650000, -0.0265150000, 1.0566800000 },
+    // P3-DCI to XYZ
+    { 0.4802766516, 0.3389944515, 0.1807288968, 0.2223252150, 0.7054675346, 0.0722072505, -0.0000834022, 0.0498315836, 0.9502518187 },
+    // P3-D60 to XYZ
+    { 0.524775f, 0.293295f, 0.181930f, 0.244927f, 0.682314f, 0.072759f, -0.000202f, 0.044486f, 0.955717f },
+    // P3-D65 to XYZ
+    { 0.5136157546, 0.3026880210, 0.1836962244, 0.2392533032, 0.6872070291, 0.0735396677, -0.0005985984, 0.0406016281, 0.9599969704 },
+    // Rec.2020 to XYZ
+    { 0.6708365530, 0.1770960214, 0.1520674256, 0.2767901798, 0.6703353325, 0.0528744876, -0.0007465395, 0.0250331578, 0.9757133817 },
+    // Rec.709 to XYZ
+    { 0.4356149258, 0.3971260011, 0.1672590731, 0.2208442806, 0.7121963865, 0.0669593329, 0.0172546878, 0.1086489393, 0.8740963729 },
+    // XYZ (CIE) to XYZ
+    { 1.000000f, 0.000000f, 0.000000f, 0.000000f, 1.000000f, 0.000000f, 0.000000f, 0.000000f, 1.000000f },
+};
+
+
+__CONSTANT__ float xyz_to_output_matrices[15][9] = {
+    // XYZ to ACES (AP0)
+    { 1.0262199329, -0.0344252321, 0.0082052992, -0.5165083244, 1.4167337178, 0.0997746067, 0.0004110980, -0.0000549739, 0.9996438760 },
+    // XYZ to ACES (AP1)
+    { 1.6115673705, -0.3850270695, -0.2265403009, -0.6861344162, 1.6690451366, 0.0170892795, 0.0120601670, -0.0088875088, 0.9968273418 },
+    // XYZ to Apple Wide Gamut RGB
+    { 1.6686603449, -0.4320060262, -0.2366543187, -0.6905096596, 1.6735845014, 0.0169251582, 0.0189926248, -0.0432684590, 1.0242758342 },
+    // XYZ to ARRI Wide Gamut 3
+    { 1.7423079482, -0.5641048766, -0.1782030065, -0.6581319753, 1.4485090587, 0.2096223187, -0.0418166533, 0.0864936944, 0.9553216307 },
+    // XYZ to ARRI Wide Gamut 4
+    { 1.4652841412, -0.3164934342, -0.1487907070, -0.5139051082, 1.4065965188, 0.1073085894, 0.0007037509, 0.0009869408, 0.9983093083 },
+    // XYZ to DaVinci Wide Gamut
+    { 1.4733912075, -0.3482276629, -0.1251635447, -0.4849671842, 1.2937347658, 0.1912324184, 0.0601115035, 0.1093683076, 0.8305201889 },
+    // XYZ to Fuji F-Gamut
+    { 1.6686603449, -0.4320060262, -0.2366543187, -0.6905096596, 1.6735845014, 0.0169251582, 0.0189926248, -0.0432684590, 1.0242758342 },
+    // XYZ to REDWideGamutRGB
+    { 1.3700500000, -0.2381400000, -0.1319100000, -0.5066740000, 1.3345810000, 0.1720930000, -0.0435710000, 0.2939530000, 0.7496170000 },
+    // XYZ to Sony S-Gamut3.Cine
+    { 1.7993090000, -0.6107120000, -0.1885970000, -0.4651540000, 1.3010360000, 0.1641180000, 0.0396920000, 0.0152130000, 0.9450950000 },
+    // XYZ to P3-DCI
+    { 2.6604007802, -1.2493529403, -0.4110478399, -0.8429629296, 1.8210136172, 0.0219493124, 0.0444388111, -0.0956043327, 1.0511655217 },
+    // XYZ to P3-D60
+    { 2.369362f, -0.994005f, -0.375357f, -0.854815f, 1.831528f, 0.023287f, 0.040290f, -0.085462f, 1.045172f },
+    // XYZ to P3-D65
+    { 2.4356574184, -1.0500288030, -0.3856286154, -0.8520004591, 1.8290847820, 0.0229156770, 0.0375528128, -0.0780131271, 1.0404603143 },
+    // XYZ to Rec.2020
+    { 1.6686603449, -0.4320060262, -0.2366543187, -0.6905096596, 1.6735845014, 0.0169251582, 0.0189926248, -0.0432684590, 1.0242758342 },
+    // XYZ to Rec.709
+    { 3.1751837609, -1.6976571204, -0.4775266405, -0.9902693375, 1.9501715317, 0.0400978058, 0.0604108543, -0.2088917543, 1.1484809000 },
+    // XYZ to XYZ (CIE)
+    { 1.000000f, 0.000000f, 0.000000f, 0.000000f, 1.000000f, 0.000000f, 0.000000f, 0.000000f, 1.000000f },
+};
+
+
+__DEVICE__ float rolloff_function(float x, float a, float b) {
+    return a * (x / (x + b));
+}
+
+__DEVICE__ float3 tone_mapping(float3 in, float max_input_nits, float max_output_nits) {
+    float input_white = max_input_nits / 100.0;
+    float output_white = max_output_nits / 100.0;
+    float adaptation = 9.0;
+    float b = (input_white - (adaptation / 100.0) * (input_white / output_white)) / ((input_white / output_white) - 1);
+
+    // Clamp the input to the input white point
+    in.x = _fminf(in.x, input_white);
+    in.y = _fminf(in.y, input_white);
+    in.z = _fminf(in.z, input_white);
+
+    // Constraint 1: f(W_in) = W_out
+    float a = output_white / (input_white / (input_white + b));
+    if (input_white != output_white) {
+        in.x = rolloff_function(in.x, a, b);
+        in.y = rolloff_function(in.y, a, b);
+        in.z = rolloff_function(in.z, a, b);
+    }
+
+    // Clamp to the output white point
+    in.x = _clampf(in.x, 0.0f, output_white);
+    in.y = _clampf(in.y, 0.0f, output_white);
+    in.z = _clampf(in.z, 0.0f, output_white);
+
+    return in;
+}
+
+/* 🌵               🌵
+   🌵 Main Function 🌵 
+   🌵               🌵 */
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
+    float3 out = make_float3(p_R, p_G, p_B);
+
+    // Step 1: Convert from input gamma to linear
+    out.x = gamma_to_linear(out.x, input_gamma);
+    out.y = gamma_to_linear(out.y, input_gamma);
+    out.z = gamma_to_linear(out.z, input_gamma);
+
+
+    // Step 2: Tone Mapping
+    if (user_tone_mapping) {
+        out = tone_mapping(out, max_input_nits, max_output_nits);
+    }
+    
+
+    // Step 3: Convert from input color space to XYZ
+    __CONSTANT__ float *matrix_in = input_to_xyz_matrices[input_color_space];
+    float3 xyz;
+    xyz.x = out.x * matrix_in[0] + out.y * matrix_in[1] + out.z * matrix_in[2];
+    xyz.y = out.x * matrix_in[3] + out.y * matrix_in[4] + out.z * matrix_in[5];
+    xyz.z = out.x * matrix_in[6] + out.y * matrix_in[7] + out.z * matrix_in[8];
+
+
+    // Step 4: Convert from XYZ to output color space
+    __CONSTANT__ float *matrix_out = xyz_to_output_matrices[output_color_space];
+    out.x = xyz.x * matrix_out[0] + xyz.y * matrix_out[1] + xyz.z * matrix_out[2];
+    out.y = xyz.x * matrix_out[3] + xyz.y * matrix_out[4] + xyz.z * matrix_out[5];
+    out.z = xyz.x * matrix_out[6] + xyz.y * matrix_out[7] + xyz.z * matrix_out[8];
+
+    
+    // Step 5: Convert from linear to output gamma
+    out.x = linear_to_gamma(out.x, output_gamma);
+    out.y = linear_to_gamma(out.y, output_gamma);
+    out.z = linear_to_gamma(out.z, output_gamma);
+
+    return out;
+}

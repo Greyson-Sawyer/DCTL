@@ -1,0 +1,97 @@
+// Exposure_Guide.dctl
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    // Since the image is black and white, R = G = B
+    // Use any of the channels directly as luminance
+    float luminance = p_R; // You can also use p_G or p_B
+
+    // Avoid zero or negative luminance to prevent log errors
+    luminance = _fmaxf(luminance, 0.000001f);
+
+    // Compute the stop difference from middle gray (0.18)
+    float n = _log2f(luminance / 0.18f);
+
+    // Initialize stop_difference
+    float stop_difference;
+
+    // Quantize n to the nearest 0.5 stop if within -1 to +1 stops
+    // if (n >= -1.0f && n <= 1.0f)
+    // For rec709 we do half stops for all values above -1.0f
+    if (n >= -1.0f)
+    {
+        stop_difference = _round(n * 2.0f) / 2.0f;
+    }
+    else
+    {
+        // Quantize to the nearest integer stop
+        stop_difference = _round(n);
+    }
+
+    // Clamp stop_difference between -8.0f and +8.0f
+    stop_difference = _clampf(stop_difference, -8.0f, 8.0f);
+
+    // Map the stop difference to specific colors
+    float3 color;
+
+    if (stop_difference >= 4.0f) {
+        // +7 stops and above
+        color = make_float3(1.0f, 1.0f, 1.0f); // White (#FFFFFF)
+    } else if (stop_difference == 3.5f) {
+        // +6 stops
+        color = make_float3(0.9451f, 0.7490f, 0.7529f); // #F1BFC0
+    } else if (stop_difference == 3.0f) {
+        // +5 stops
+        color = make_float3(0.8980f, 0.4941f, 0.5490f); // #E57E8C
+    } else if (stop_difference == 2.5f) {
+        // +4 stops
+        color = make_float3(0.9373f, 0.1059f, 0.1490f); // #EF1B26
+    } else if (stop_difference == 2.0f) {
+        // +3 stops
+        color = make_float3(0.9686f, 0.6667f, 0.2784f); // #F7AA47
+    } else if (stop_difference == 1.5f) {
+        // +2 stops
+        color = make_float3(0.9569f, 0.4392f, 0.1647f); // #F4702A
+    } else if (stop_difference == 1.0f) {
+        // +1 stop
+        color = make_float3(1.0f, 0.9725f, 0.6510f); // #FFF8A6
+    } else if (stop_difference == 0.5f) {
+        // +0.5 stop
+        color = make_float3(0.9765f, 0.9137f, 0.0f); // #F9E900
+    } else if (stop_difference == 0.0f) {
+        // Middle gray
+        color = make_float3(0.5020f, 0.5020f, 0.5020f); // #808080
+    } else if (stop_difference == -0.5f) {
+        // -0.5 stop
+        color = make_float3(0.5804f, 0.7804f, 0.2588f); // #94C742
+    } else if (stop_difference == -1.0f) {
+        // -1 stop
+        color = make_float3(0.3686f, 0.7333f, 0.2784f); // #5EBB47
+    } else if (stop_difference == -2.0f) {
+        // -2 stops
+        color = make_float3(0.1059f, 0.6588f, 0.2941f); // #1BA84B
+    } else if (stop_difference == -3.0f) {
+        // -3 stops
+        color = make_float3(0.1490f, 0.6863f, 0.8941f); // #26AFE4
+    } else if (stop_difference == -4.0f) {
+        // -4 stops
+        color = make_float3(0.0902f, 0.4549f, 0.6549f); // #1774A7
+    } else if (stop_difference == -5.0f) {
+        // -5 stops
+        color = make_float3(0.6235f, 0.4980f, 0.7216f); // #9F7FB8
+    } else if (stop_difference == -6.0f) {
+        // -6 stops
+        color = make_float3(0.3843f, 0.2784f, 0.6078f); // #62479B
+    } else if (stop_difference <= -7.0f) {
+        // -7 stops and below
+        color = make_float3(0.0275f, 0.0275f, 0.0275f); // #070707
+    } else {
+        // Default color (should not reach here due to clamping)
+        color = make_float3(0.5f, 0.5f, 0.5f); // Gray
+    }
+
+    // Set the output color
+    float3 out = color;
+
+    return out;
+}
