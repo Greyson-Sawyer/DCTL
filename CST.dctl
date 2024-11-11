@@ -1,32 +1,32 @@
-// ==============================================================================
-// Color Space Transform Utility
-// Created by Greyson Sawyer
-//
-// This DCTL converts between different color spaces and gamma encodings.
-// 
-// Question: How is this DCTL better than the Color Space Transform plugin?
-// Answer: It's not! This DCTL is designed as a reference to help build custom DCTLs.
-// It is identical to the CST plugin but doesn't have tone or gamut mapping and uses
-// white point adaptation by default.
-//
-// Example Usage: 
-// You are creating a DCTL that needs to handle multiple color spaces/gammas. 
-// Instead of building the color space transformation logic from scratch,
-// you can copy this code and adapt it to your needs 💚
-// 
-// Process Overview:
-// 1. Convert input gamma --> linear.
-// 2. Apply inverse OOTF (if enabled).
-// 3. Transform input color space --> XYZ color space.
-// 4. Transform XYZ color space --> output color space.
-// 5. Apply forward OOTF (if enabled).
-// 6. Convert linear --> output gamma.
-// 
-// ==============================================================================
+/*
+Color Space Transform Utility
+Created by Greyson Sawyer
 
-/* =========================
-   🫸     UI Parameters     🫷
-   ========================= */
+This DCTL converts between different color spaces and gamma encodings.
+
+Question: How is this DCTL better than the Color Space Transform plugin?
+Answer: It's not! This DCTL is designed as a reference to help build custom DCTLs.
+It is identical to the CST plugin but doesn't have tone or gamut mapping and uses
+white point adaptation by default.
+
+Example Usage: 
+You are creating a DCTL that needs to handle multiple color spaces/gammas. 
+Instead of building the color space transformation logic from scratch,
+you can copy this code and adapt it to your needs 💚
+
+Process Overview:
+1. Convert input gamma --> linear.
+2. Apply inverse OOTF (if enabled).
+3. Transform input color space --> XYZ color space.
+4. Transform XYZ color space --> output color space.
+5. Apply forward OOTF (if enabled).
+6. Convert linear --> output gamma.
+*/
+
+
+// ===============================
+// SECTION: 🛠️ UI Parameters 
+// ===============================
 
 // Input Color Space
 DEFINE_UI_PARAMS(input_color_space, Input Color Space, DCTLUI_COMBO_BOX, 4, { ic0, ic1, ic2, ic3, ic4, ic5, ic6, ic7, ic8, ic9, ic10, ic11, ic12, ic13, ic14 }, { ACES (AP0), ACES (AP1), Apple Wide Gamut RGB, ARRI Wide Gamut 3, ARRI Wide Gamut 4, DaVinci Wide Gamut, Fuji F-Gamut, REDWideGamutRGB, Sony S-Gamut3.Cine, P3-DCI, P3-D60, P3-D65, Rec.2020, Rec.709, XYZ (CIE) })
@@ -47,9 +47,9 @@ DEFINE_UI_PARAMS(forward_ootf, Apply Forward OOTF, DCTLUI_CHECK_BOX, 0)
 DEFINE_UI_PARAMS(inverse_ootf, Apply Inverse OOTF, DCTLUI_CHECK_BOX, 0)
 
 
-// =============================================================================
-// 🔧 Utilities
-// =============================================================================
+// ===============================
+// SECTION: 📌 Constants
+// ===============================
 
 // Enumeration for gamma types
 // Necessary for gamma encoding and decoding functions.
@@ -71,9 +71,10 @@ typedef enum {
     Linear
 } GammaType;
 
-/* =============================================================================
-   📈 Gamma Encoding and Decoding Functions
-   ============================================================================= */
+
+// ===============================
+// SECTION: 🌘 Gamma Conversion
+// ===============================
 
 __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
     switch (gamma_type) {
@@ -479,6 +480,10 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
     }
 }
 
+// ===============================
+// SECTION: 🧩 Applying OOTF
+// ===============================
+
 __DEVICE__ float3 apply_forward_ootf(float3 in) {
     // Step 1: Convert linear light to rec709 gamma curve (not gamma 2.4)
     in.x = linear_to_gamma(in.x, Rec709);
@@ -507,13 +512,13 @@ __DEVICE__ float3 apply_inverse_ootf(float3 in) {
     return in;
 }
 
-/* ===============================================================
-   🌈 Color Space Transformation Matrices
-    Reference: https://haraldbrendel.com/colorspacecalculator.html
-    Reference: https://www.colour-science.org:8010/apps/rgb_colourspace_transformation_matrix
-   =============================================================== */
+// ===============================
+// SECTION: 🌈 Color Space Transformation Matrices
+// Reference: https://haraldbrendel.com/colorspacecalculator.html
+// Reference: https://www.colour-science.org:8010/apps/rgb_colourspace_transformation_matrix
+// ===============================
 
-// Input Color Space to XYZ Transformation Matrices
+
 __CONSTANT__ float input_to_xyz_matrices[15][3][3] = {
     // ACES (AP0) to XYZ
     {
@@ -607,7 +612,6 @@ __CONSTANT__ float input_to_xyz_matrices[15][3][3] = {
     }
 };
 
-// XYZ to Output Color Space Transformation Matrices
 __CONSTANT__ float xyz_to_output_matrices[15][3][3] = {
     // XYZ to ACES (AP0)
     {
@@ -702,9 +706,9 @@ __CONSTANT__ float xyz_to_output_matrices[15][3][3] = {
 };
 
 
-/* ===============================================================
-   🌵 Main Function
-   =============================================================== */
+// ===============================
+// SECTION: 🌵 Main Function
+// ===============================
 
 __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
     // Initialize output color
