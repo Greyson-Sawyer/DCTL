@@ -4,23 +4,31 @@ Created by Greyson Sawyer
 
 This DCTL converts between different color spaces and gamma encodings.
 
-Question: How is this DCTL better than the Color Space Transform plugin?
-Answer: It's not! This DCTL is designed as a reference to help build custom DCTLs.
-It is identical to the CST plugin but doesn't have tone or gamut mapping and uses
-white point adaptation by default.
+QUESTION: How is this DCTL better than the Color Space Transform plugin?
+ANSWER: It's not! This DCTL is designed as a reference to help build custom DCTLs.
+I attempted to make this DCTL as readable as possible.
 
-Example Usage: 
+EXAMPLE USAGE: 
 You are creating a DCTL that needs to handle multiple color spaces/gammas. 
 Instead of building the color space transformation logic from scratch,
 you can copy this code and adapt it to your needs 💚
 
-Process Overview:
+
+PROCESS OVERVIEW:
 1. Convert input gamma --> linear.
 2. Apply inverse OOTF (if enabled).
 3. Transform input color space --> XYZ color space.
 4. Transform XYZ color space --> output color space.
 5. Apply forward OOTF (if enabled).
 6. Convert linear --> output gamma.
+
+
+This DCTL is identical to the CST plugin but doesn't have:
+-Tone mapping
+-Gamut mapping
+-White point adaptation toggle
+
+Here's my DCTL that includes those features (less copy-pastable):
 */
 
 
@@ -48,8 +56,13 @@ DEFINE_UI_PARAMS(inverse_ootf, Apply Inverse OOTF, DCTLUI_CHECK_BOX, 0)
 
 
 // ===============================
-// SECTION: 📌 Constants
+// SECTION: 📌 Constants & Utility
 // ===============================
+
+// Custom powf function to handle negative base values.
+__DEVICE__ float powf(float base, float exp) {
+    return _copysignf(_powf(_fabs(base), exp), base);
+}
 
 // Enumeration for gamma types
 // Necessary for gamma encoding and decoding functions.
@@ -87,9 +100,9 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float cut2 = 1.468f;
 
             if (in <= cut1) {
-                return (_powf(2.0f, (in * a - b)) - _powf(2.0f, -16.0f)) * 0.5f;
+                return (powf(2.0f, (in * a - b)) - powf(2.0f, -16.0f)) * 0.5f;
             } else if (in < cut2) {
-                return _powf(2.0f, in * a - b);
+                return powf(2.0f, in * a - b);
             } else {
                 return 65504.0f;
             }
@@ -107,7 +120,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             if (in <= k1) {
                 return (in - k0) / m;
             } else if (in < cut) {
-                return _powf(2.0f, in * a - b);
+                return powf(2.0f, in * a - b);
             } else {
                 return 65504.0f;
             }
@@ -124,7 +137,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float cut = (e * 0.010591f) + f;
 
             if (in > cut) {
-                return (_powf(10.0f, (in - d) / c) - b) / a;
+                return (powf(10.0f, (in - d) / c) - b) / a;
             } else {
                 return (in - f) / e;
             }
@@ -142,7 +155,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
                 return in * s + t;
             } else {
                 float p = 14.0f * (in - c) / b + 6.0f;
-                return (_powf(2.0f, p) - 64.0f) / a;
+                return (powf(2.0f, p) - 64.0f) / a;
             }
         }
         case Apple_Log:
@@ -154,7 +167,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float b  = 0.00964052f;
             const float y  = 0.08550479f;
             const float d  = 0.69336945f;
-            const float Pt = c * _powf(Rt - R0, 2.0f);
+            const float Pt = c * powf(Rt - R0, 2.0f);
 
             if (in >= Pt) {
                 return _exp2f((in - d) / y) - b;
@@ -174,7 +187,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float log_cut = 0.02740668f;
 
             if (in > log_cut) {
-                return _powf(2.0f, (in / C) - B) - A;
+                return powf(2.0f, (in / C) - B) - A;
             } else {
                 return in / M;
             }
@@ -191,7 +204,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float cut = 0.100537775223865f;
 
             if (in >= cut) {
-                return (_powf(10.0f, (in - d) / c) - b) / a;
+                return (powf(10.0f, (in - d) / c) - b) / a;
             } else {
                 return (in - f) / e;
             }
@@ -208,7 +221,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float cut = 0.100686685370811f;
 
             if (in >= cut) {
-                return (_powf(10.0f, (in - d) / c) - b) / a;
+                return (powf(10.0f, (in - d) / c) - b) / a;
             } else {
                 return (in - f) / e;
             }
@@ -224,7 +237,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             if (in < 0.0f) {
                 return (in / g) - c;
             } else {
-                return (_powf(10.0f, in / a) - 1.0f) / b - c;
+                return (powf(10.0f, in / a) - 1.0f) / b - c;
             }
         }
         case Sony_S_Log3:
@@ -242,7 +255,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             if (in >= cut1) {
                 float num = in * 1023.0f - 420.0f;
                 float exponent = num / 261.5f;
-                return _powf(a, exponent) * b + c;
+                return powf(a, exponent) * b + c;
             } else {
                 float num = in * 1023.0f - e;
                 return num * d / denom;
@@ -254,23 +267,23 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             if (in < 0.081f) {
                 return in / 4.5f;
             } else {
-                return _powf((in + 0.099f) / 1.099f, 1.0f / 0.45f);
+                return powf((in + 0.099f) / 1.099f, 1.0f / 0.45f);
             }
         }
         case Gamma_2_2:
         {
             // Gamma 2.2 to Linear
-            return _powf(in, 2.2f);
+            return powf(in, 2.2f);
         }
         case Gamma_2_4:
         {
             // Gamma 2.4 to Linear
-            return _powf(in, 2.4f);
+            return powf(in, 2.4f);
         }
         case Gamma_2_6:
         {
             // Gamma 2.6 to Linear
-            return _powf(in, 2.6f);
+            return powf(in, 2.6f);
         }
         case Linear:
         default:
@@ -288,7 +301,7 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
             // Linear to ACEScc
             const float a   = 17.52f;
             const float b   = 9.72f;
-            const float c   = _powf(2.0f, -16.0f);
+            const float c   = powf(2.0f, -16.0f);
             const float cut = c * 0.5f;
 
             if (in <= 0.0f) {
@@ -359,7 +372,7 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
             if (in >= Rt) {
                 return y * _log2f(in + b) + d;
             } else if (in > R0) {
-                return c * _powf(in - R0, 2.0f);
+                return c * powf(in - R0, 2.0f);
             } else {
                 return 0.0f;
             }
@@ -453,23 +466,23 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
             if (in < 0.018f) {
                 return 4.5f * in;
             } else {
-                return 1.099f * _powf(in, 0.45f) - 0.099f;
+                return 1.099f * powf(in, 0.45f) - 0.099f;
             }
         }
         case Gamma_2_2:
         {
             // Linear to Gamma 2.2
-            return _powf(in, 1.0f / 2.2f);
+            return powf(in, 1.0f / 2.2f);
         }
         case Gamma_2_4:
         {
             // Linear to Gamma 2.4
-            return _powf(in, 1.0f / 2.4f);
+            return powf(in, 1.0f / 2.4f);
         }
         case Gamma_2_6:
         {
             // Linear to Gamma 2.6
-            return _powf(in, 1.0f / 2.6f);
+            return powf(in, 1.0f / 2.6f);
         }
         case Linear:
         default:
@@ -516,6 +529,7 @@ __DEVICE__ float3 apply_inverse_ootf(float3 in) {
 // SECTION: 🌈 Color Space Transformation Matrices
 // Reference: https://haraldbrendel.com/colorspacecalculator.html
 // Reference: https://www.colour-science.org:8010/apps/rgb_colourspace_transformation_matrix
+// Note: These matrices use CAT02 white point adaptation.
 // ===============================
 
 
