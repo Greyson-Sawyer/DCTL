@@ -14,6 +14,16 @@ Instead of building the color space transformation logic from scratch,
 you can copy this code and adapt it to your needs 💚
 
 
+This DCTL is identical to the CST plugin but doesn't have:
+-Tone mapping
+-Gamut mapping
+-White point adaptation toggle
+
+FULL VERSION:
+Here's my DCTL that includes those features (less copy-pastable):
+https://github.com/Greyson-Sawyer/DCTL/blob/main/CST_full.dctl
+
+
 PROCESS OVERVIEW:
 1. Convert input gamma --> linear.
 2. Apply inverse OOTF (if enabled).
@@ -22,14 +32,6 @@ PROCESS OVERVIEW:
 5. Apply forward OOTF (if enabled).
 6. Convert linear --> output gamma.
 
-
-This DCTL is identical to the CST plugin but doesn't have:
--Tone mapping
--Gamut mapping
--White point adaptation toggle
-
-Here's my DCTL that includes those features (less copy-pastable):
-https://github.com/Greyson-Sawyer/DCTL/blob/main/CST_full.dctl
 */
 
 

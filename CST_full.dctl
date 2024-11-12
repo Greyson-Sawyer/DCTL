@@ -27,8 +27,14 @@ PROCESS OVERVIEW:
 
 For a simpler, more copy-pastable version, see:
 https://github.com/Greyson-Sawyer/DCTL/blob/main/CST_simple.dctl
-*/
 
+CREDITS:
+-Tone Mapping: Adapted from Thatcher Freeman's DCTL. 
+https://github.com/thatcherfreeman/utility-dctls/blob/main/Utilities/DaVinci%20Tone%20Mapping.dctl
+-Saturation Compression: Adapted from Juan Pablo Zambrano's DCTL.
+https://github.com/JuanPabloZambrano/DCTL/blob/main/Jp-DRT/JedSmith_GamutCompressCLin.dctl
+
+*/
 
 // ===============================
 // SECTION 1: 🛠️ UI Parameters 
