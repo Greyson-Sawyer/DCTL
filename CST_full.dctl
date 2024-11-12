@@ -1013,8 +1013,8 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     if (inverse_ootf) {
         out = apply_inverse_ootf(out);
     }
-
-	// Step 3: Tone Mapping
+    
+    // Step 3: Tone Mapping
     if (user_tone_mapping) {
         out = tone_mapping(out, max_input_nits, max_output_nits);
     }
