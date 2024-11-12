@@ -4,17 +4,17 @@ Created by Greyson Sawyer
 
 This DCTL converts between different color spaces and gamma encodings.
 
-Question: How is this DCTL better than the Color Space Transform plugin?
-Answer: It's not! This DCTL is designed as a reference to help build custom DCTLs.
-It is identical to the CST plugin but doesn't have tone or gamut mapping and uses
-white point adaptation by default.
+This version includes:
+-Tone Mapping
+-Saturation Compression
+-White Point Adaptation Toggle
 
-Example Usage: 
-You are creating a DCTL that needs to handle multiple color spaces/gammas. 
-Instead of building the color space transformation logic from scratch,
-you can copy this code and adapt it to your needs 💚
+NOTE:
+Tone Mapping and Saturation Compression features are similar
+but not idential to those features in the Color Space Transform plugin.
 
-Process Overview:
+
+PROCESS OVERVIEW:
 1. Convert input gamma --> linear.
 2. Apply inverse OOTF (if enabled).
 3. Apply tone mapping (if enabled).
@@ -23,24 +23,28 @@ Process Overview:
 6. Apply Saturation Compression (if enabled).
 7. Apply forward OOTF (if enabled).
 8. Convert linear --> output gamma.
+
+
+For a simpler, more copy-pastable version, see:
+https://github.com/Greyson-Sawyer/DCTL/blob/main/CST_simple.dctl
 */
 
 
 // ===============================
-// SECTION: 🛠️ UI Parameters 
+// SECTION 1: 🛠️ UI Parameters 
 // ===============================
 
 // Input Color Space
-DEFINE_UI_PARAMS(input_color_space, Input Color Space, DCTLUI_COMBO_BOX, 4, { ic0, ic1, ic2, ic3, ic4, ic5, ic6, ic7, ic8, ic9, ic10, ic11, ic12, ic13, ic14 }, { ACES (AP0), ACES (AP1), Apple Wide Gamut RGB, ARRI Wide Gamut 3, ARRI Wide Gamut 4, DaVinci Wide Gamut, Fuji F-Gamut, REDWideGamutRGB, Sony S-Gamut3.Cine, P3-DCI, P3-D60, P3-D65, Rec.2020, Rec.709, XYZ (CIE) })
+DEFINE_UI_PARAMS(input_color_space, Input Color Space, DCTLUI_COMBO_BOX, 3, { ic0, ic1, ic2, ic3, ic4, ic5, ic6, ic7, ic8, ic9, ic10, ic11, ic12, ic13, ic14 }, { ACES (AP0), ACES (AP1), Apple Wide Gamut RGB, ARRI Wide Gamut 3, ARRI Wide Gamut 4, DaVinci Wide Gamut, Fuji F-Gamut, REDWideGamutRGB, Sony S-Gamut3.Cine, P3-DCI, P3-D60, P3-D65, Rec.2020, Rec.709, XYZ (CIE) })
 
 // Input Gamma
-DEFINE_UI_PARAMS(input_gamma, Input Gamma, DCTLUI_COMBO_BOX, 3, { ig0, ig1, ig2, ig3, ig4, ig5, ig6, ig7, ig8, ig9, ig10, ig11, ig12, ig13, ig14 }, { ACEScc, ACEScct, ARRI LogC3, ARRI LogC4, Apple Log, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, RED Log3G10, Sony S-Log3,  Rec.709, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear })
+DEFINE_UI_PARAMS(input_gamma, Input Gamma, DCTLUI_COMBO_BOX, 3, { ig0, ig1, ig2, ig3, ig4, ig5, ig6, ig7, ig8, ig9, ig10, ig11, ig12, ig13, ig14 }, { ACEScc, ACEScct, Apple Log, ARRI LogC3, ARRI LogC4, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear, Rec.709, RED Log3G10, Sony S-Log3 })
 
 // Output Color Space
 DEFINE_UI_PARAMS(output_color_space, Output Color Space, DCTLUI_COMBO_BOX, 13, { oc0, oc1, oc2, oc3, oc4, oc5, oc6, oc7, oc8, oc9, oc10, oc11, oc12, oc13, oc14 }, { ACES (AP0), ACES (AP1), Apple Wide Gamut RGB, ARRI Wide Gamut 3, ARRI Wide Gamut 4, DaVinci Wide Gamut, Fuji F-Gamut, REDWideGamutRGB, Sony S-Gamut3.Cine, P3-DCI, P3-D60, P3-D65, Rec.2020, Rec.709, XYZ (CIE) })
 
 // Output Gamma
-DEFINE_UI_PARAMS(output_gamma, Output Gamma, DCTLUI_COMBO_BOX, 12, { og0, og1, og2, og3, og4, og5, og6, og7, og8, og9, og10, og11, og12, og13, og14 }, { ACEScc, ACEScct, ARRI LogC3, ARRI LogC4, Apple Log, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, RED Log3G10, Sony S-Log3, Rec.709, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear })
+DEFINE_UI_PARAMS(output_gamma, Output Gamma, DCTLUI_COMBO_BOX, 9, { og0, og1, og2, og3, og4, og5, og6, og7, og8, og9, og10, og11, og12, og13, og14 }, { ACEScc, ACEScct, Apple Log, ARRI LogC3, ARRI LogC4, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear, Rec.709, RED Log3G10, Sony S-Log3 })
 
 // Tone Mapping
 DEFINE_UI_PARAMS(user_tone_mapping, Tone Mapping, DCTLUI_CHECK_BOX, 1)
@@ -63,7 +67,7 @@ DEFINE_UI_PARAMS(white_point_adaptation, Use White Point Adaptation, DCTLUI_CHEC
 
 
 // ===============================
-// SECTION: 📌 Constants & Utility
+// SECTION 2: 📌 Constants & Utility
 // ===============================
 
 // Custom powf function to handle negative base values.
@@ -76,24 +80,24 @@ __DEVICE__ float powf(float base, float exp) {
 typedef enum {
     ACEScc,
     ACEScct,
+    Apple_Log,
     ARRI_LogC3,
     ARRI_LogC4,
-    Apple_Log,
     DaVinci_Intermediate,
     Fuji_F_Log,
     Fuji_F_Log2,
-    RED_Log3G10,
-    Sony_S_Log3,
-    Rec709,
     Gamma_2_2,
     Gamma_2_4,
     Gamma_2_6,
-    Linear
+    Linear,
+    Rec709,
+    RED_Log3G10,
+    Sony_S_Log3
 } GammaType;
 
 
 // ===============================
-// SECTION: 🌘 Gamma Conversion
+// SECTION 3: 🌘 Gamma Conversion
 // ===============================
 
 __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
@@ -502,7 +506,7 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
 
 
 // ===============================
-// SECTION: 🎢 Tone Mapping
+// SECTION 4: 🎢 Tone Mapping
 // Credit: This code was adapted from Thatcher Freeman's DCTL.
 // https://github.com/thatcherfreeman/utility-dctls/blob/main/Utilities/DaVinci%20Tone%20Mapping.dctl
 // It's similar to Resolve's tone mapping but not identical.
@@ -541,7 +545,7 @@ __DEVICE__ float3 tone_mapping(float3 in, float max_input_nits, float max_output
 
 
 // ===============================
-// SECTION: 📦 Saturation Compression
+// SECTION 5: 📦 Saturation Compression
 // Credit: This code was adapted from Juan Pablo Zambrano's DCTL.
 // https://github.com/JuanPabloZambrano/DCTL/blob/main/Jp-DRT/JedSmith_GamutCompressCLin.dctl
 // It's similar to Resolve's saturation compression but not identical.
@@ -568,7 +572,7 @@ __DEVICE__ float3 apply_saturation_compression(float3 in, float sat_knee, float 
 
 
 // ===============================
-// SECTION: 🧩 Applying OOTF
+// SECTION 6: 🧩 Applying OOTF
 // ===============================
 
 __DEVICE__ float3 apply_forward_ootf(float3 in) {
@@ -601,7 +605,7 @@ __DEVICE__ float3 apply_inverse_ootf(float3 in) {
 
 
 // ===============================
-// SECTION: 🧮 Color Space Transformation Matrices
+// SECTION 7: 🌈 Color Space Transformation Matrices
 // Reference: https://haraldbrendel.com/colorspacecalculator.html
 // Reference: https://www.colour-science.org:8010/apps/rgb_colourspace_transformation_matrix
 // ===============================
@@ -794,7 +798,7 @@ __CONSTANT__ float xyz_to_output_matrices[15][3][3] = {
 
 
 // ===============================
-// SECTION: 🐈 Color Space Transformation Matrices with Chromatic Adaptation (CAT02)
+// SECTION 8: 🐈 Color Space Transformation Matrices with Chromatic Adaptation (CAT02)
 // Reference: https://haraldbrendel.com/colorspacecalculator.html
 // Reference: https://www.colour-science.org:8010/apps/rgb_colourspace_transformation_matrix
 // ===============================
@@ -987,53 +991,7 @@ __CONSTANT__ float xyz_to_output_matrices_cat02[15][3][3] = {
 
 
 // ===============================
-// SECTION: 🌈 Color Space Transform Functions
-// ===============================
-
-__DEVICE__ float3 color_space_to_xyz(float3 in, int input_color_space, int white_point_adaptation) {
-    float3 xyz;
-
-    if (!white_point_adaptation) {
-        // No White Point Adaptation
-        __CONSTANT__ float (*matrix_in)[3] = input_to_xyz_matrices[input_color_space];
-        xyz.x = in.x * matrix_in[0][0] + in.y * matrix_in[0][1] + in.z * matrix_in[0][2];
-        xyz.y = in.x * matrix_in[1][0] + in.y * matrix_in[1][1] + in.z * matrix_in[1][2];
-        xyz.z = in.x * matrix_in[2][0] + in.y * matrix_in[2][1] + in.z * matrix_in[2][2];
-
-    } else {
-        // With Chromatic Adaptation (CAT02)
-        __CONSTANT__ float (*matrix_in)[3] = input_to_xyz_matrices_cat02[input_color_space];
-        xyz.x = in.x * matrix_in[0][0] + in.y * matrix_in[0][1] + in.z * matrix_in[0][2];
-        xyz.y = in.x * matrix_in[1][0] + in.y * matrix_in[1][1] + in.z * matrix_in[1][2];
-        xyz.z = in.x * matrix_in[2][0] + in.y * matrix_in[2][1] + in.z * matrix_in[2][2];
-    }
-
-    return xyz;
-}
-
-__DEVICE__ float3 xyz_to_color_space(float3 xyz, int output_color_space, int white_point_adaptation) {
-    float3 out;
-
-    if (!white_point_adaptation) {
-        // No White Point Adaptation
-        __CONSTANT__ float (*matrix_out)[3] = xyz_to_output_matrices[output_color_space];
-        out.x = xyz.x * matrix_out[0][0] + xyz.y * matrix_out[0][1] + xyz.z * matrix_out[0][2];
-        out.y = xyz.x * matrix_out[1][0] + xyz.y * matrix_out[1][1] + xyz.z * matrix_out[1][2];
-        out.z = xyz.x * matrix_out[2][0] + xyz.y * matrix_out[2][1] + xyz.z * matrix_out[2][2];
-
-    } else {
-        // With Chromatic Adaptation (CAT02)
-        __CONSTANT__ float (*matrix_out)[3] = xyz_to_output_matrices_cat02[output_color_space];
-        out.x = xyz.x * matrix_out[0][0] + xyz.y * matrix_out[0][1] + xyz.z * matrix_out[0][2];
-        out.y = xyz.x * matrix_out[1][0] + xyz.y * matrix_out[1][1] + xyz.z * matrix_out[1][2];
-        out.z = xyz.x * matrix_out[2][0] + xyz.y * matrix_out[2][1] + xyz.z * matrix_out[2][2];
-    }
-
-    return out;
-}
-
-// ===============================
-// SECTION: 🌵 Main Function
+// SECTION 9: 🌵 Main Function
 // ===============================
 
 __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {
@@ -1056,10 +1014,38 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
     }
 
     // Step 4: Input color space --> XYZ
-    float3 xyz = color_space_to_xyz(out, input_color_space, white_point_adaptation);
+    float3 xyz;
+
+    if (!white_point_adaptation) {
+        // No White Point Adaptation
+        __CONSTANT__ float (*matrix_in)[3] = input_to_xyz_matrices[input_color_space];
+        xyz.x = out.x * matrix_in[0][0] + out.y * matrix_in[0][1] + out.z * matrix_in[0][2];
+        xyz.y = out.x * matrix_in[1][0] + out.y * matrix_in[1][1] + out.z * matrix_in[1][2];
+        xyz.z = out.x * matrix_in[2][0] + out.y * matrix_in[2][1] + out.z * matrix_in[2][2];
+
+    } else {
+        // With Chromatic Adaptation (CAT02)
+        __CONSTANT__ float (*matrix_in)[3] = input_to_xyz_matrices_cat02[input_color_space];
+        xyz.x = out.x * matrix_in[0][0] + out.y * matrix_in[0][1] + out.z * matrix_in[0][2];
+        xyz.y = out.x * matrix_in[1][0] + out.y * matrix_in[1][1] + out.z * matrix_in[1][2];
+        xyz.z = out.x * matrix_in[2][0] + out.y * matrix_in[2][1] + out.z * matrix_in[2][2];
+    }
 
     // Step 5: XYZ --> output color space
-    out = xyz_to_color_space(xyz, output_color_space, white_point_adaptation);
+    if (!white_point_adaptation) {
+        // No White Point Adaptation
+        __CONSTANT__ float (*matrix_out)[3] = xyz_to_output_matrices[output_color_space];
+        out.x = xyz.x * matrix_out[0][0] + xyz.y * matrix_out[0][1] + xyz.z * matrix_out[0][2];
+        out.y = xyz.x * matrix_out[1][0] + xyz.y * matrix_out[1][1] + xyz.z * matrix_out[1][2];
+        out.z = xyz.x * matrix_out[2][0] + xyz.y * matrix_out[2][1] + xyz.z * matrix_out[2][2];
+
+    } else {
+        // With Chromatic Adaptation (CAT02)
+        __CONSTANT__ float (*matrix_out)[3] = xyz_to_output_matrices_cat02[output_color_space];
+        out.x = xyz.x * matrix_out[0][0] + xyz.y * matrix_out[0][1] + xyz.z * matrix_out[0][2];
+        out.y = xyz.x * matrix_out[1][0] + xyz.y * matrix_out[1][1] + xyz.z * matrix_out[1][2];
+        out.z = xyz.x * matrix_out[2][0] + xyz.y * matrix_out[2][1] + xyz.z * matrix_out[2][2];
+    }
 
     // Step 6: Apply Saturation Compression
     if (saturation_compression) {

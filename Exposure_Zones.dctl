@@ -1,43 +1,74 @@
-// Exposure_Zones.dctl
+/*
+Exposure Zones
+Created by Greyson Sawyer
+
+This DCTL creates a visualization of exposure zones based on the stops from middle gray.
+Based on Ansel Adams' Zone System and the El Zone System created by Ed Lachman.
+
+BASED ON:
+Ansel Adams' and Fred Archer's Zone System: https://en.wikipedia.org/wiki/Zone_System
+Ed Lachman's El Zone System: https://www.elzonesystem.com/
+
+PROCESS OVERVIEW:
+1. Convert input gamma to linear light.
+2. Apply Inverse OOTF (if enabled).
+4. Calculate luminance.
+5. Compute the stops from middle gray (0.18).
+6. Quantize the stop.
+7. Clamp stop between -8.0 and +8.0.
+8. Map the stop to specific colors.
+*/
+
+ 
+// ===============================
+// SECTION 1: 🛠️ UI Parameters 
+// ===============================
 
 // Input Gamma
-DEFINE_UI_PARAMS(input_gamma, Input Gamma, DCTLUI_COMBO_BOX, 3, { ig0, ig1, ig2, ig3, ig4, ig5, ig6, ig7, ig8, ig9, ig10, ig11, ig12, ig13, ig14 }, { ACEScc, ACEScct, ARRI LogC3, ARRI LogC4, Apple Log, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, RED Log3G10, Sony S-Log3,  Rec.709, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear })
-
-// Forward OOTF
-DEFINE_UI_PARAMS(forward_ootf, Apply Forward OOTF, DCTLUI_CHECK_BOX, 0)
-
-// Inverse OOTF
-DEFINE_UI_PARAMS(inverse_ootf, Apply Inverse OOTF, DCTLUI_CHECK_BOX, 0)
+DEFINE_UI_PARAMS(input_gamma, Input Gamma, DCTLUI_COMBO_BOX, 9, { ig0, ig1, ig2, ig3, ig4, ig5, ig6, ig7, ig8, ig9, ig10, ig11, ig12, ig13, ig14 }, { ACEScc, ACEScct, Apple Log, ARRI LogC3, ARRI LogC4, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear, Rec.709, RED Log3G10, Sony S-Log3 })
 
 
-// =============================================================================
-// 🔧 Utilities
-// =============================================================================
+// Chart
+DEFINE_UI_PARAMS(show_chart, Show Chart, DCTLUI_CHECK_BOX, 1)
+DEFINE_UI_PARAMS(chart_size, Chart Width, DCTLUI_SLIDER_FLOAT, 4.0, 0.0, 100.0, 0.2)
 
+// Convert display-reference to scene-referred
+DEFINE_UI_PARAMS(is_scene_referred, Scene-Referred Source, DCTLUI_CHECK_BOX, 0)
+
+
+// ===============================
+// SECTION 2: 📌 Constants & Utility
+// ===============================
+
+// Custom powf function to handle negative base values.
+__DEVICE__ float powf(float base, float exp) {
+    return _copysignf(_powf(_fabs(base), exp), base);
+}
 
 // Enumeration for gamma types
 // Necessary for gamma encoding and decoding functions.
 typedef enum {
     ACEScc,
     ACEScct,
+    Apple_Log,
     ARRI_LogC3,
     ARRI_LogC4,
-    Apple_Log,
     DaVinci_Intermediate,
     Fuji_F_Log,
     Fuji_F_Log2,
-    RED_Log3G10,
-    Sony_S_Log3,
-    Rec709,
     Gamma_2_2,
     Gamma_2_4,
     Gamma_2_6,
-    Linear
+    Linear,
+    Rec709,
+    RED_Log3G10,
+    Sony_S_Log3
 } GammaType;
 
-/* =============================================================================
-   📈 Gamma Encoding and Decoding Functions
-   ============================================================================= */
+
+// ===============================
+// SECTION 3: 🌘 Gamma Conversion
+// ===============================
 
 __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
     switch (gamma_type) {
@@ -50,9 +81,9 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float cut2 = 1.468f;
 
             if (in <= cut1) {
-                return (_powf(2.0f, (in * a - b)) - _powf(2.0f, -16.0f)) * 0.5f;
+                return (powf(2.0f, (in * a - b)) - powf(2.0f, -16.0f)) * 0.5f;
             } else if (in < cut2) {
-                return _powf(2.0f, in * a - b);
+                return powf(2.0f, in * a - b);
             } else {
                 return 65504.0f;
             }
@@ -70,7 +101,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             if (in <= k1) {
                 return (in - k0) / m;
             } else if (in < cut) {
-                return _powf(2.0f, in * a - b);
+                return powf(2.0f, in * a - b);
             } else {
                 return 65504.0f;
             }
@@ -87,7 +118,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float cut = (e * 0.010591f) + f;
 
             if (in > cut) {
-                return (_powf(10.0f, (in - d) / c) - b) / a;
+                return (powf(10.0f, (in - d) / c) - b) / a;
             } else {
                 return (in - f) / e;
             }
@@ -105,7 +136,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
                 return in * s + t;
             } else {
                 float p = 14.0f * (in - c) / b + 6.0f;
-                return (_powf(2.0f, p) - 64.0f) / a;
+                return (powf(2.0f, p) - 64.0f) / a;
             }
         }
         case Apple_Log:
@@ -117,7 +148,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float b  = 0.00964052f;
             const float y  = 0.08550479f;
             const float d  = 0.69336945f;
-            const float Pt = c * _powf(Rt - R0, 2.0f);
+            const float Pt = c * powf(Rt - R0, 2.0f);
 
             if (in >= Pt) {
                 return _exp2f((in - d) / y) - b;
@@ -137,7 +168,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float log_cut = 0.02740668f;
 
             if (in > log_cut) {
-                return _powf(2.0f, (in / C) - B) - A;
+                return powf(2.0f, (in / C) - B) - A;
             } else {
                 return in / M;
             }
@@ -154,7 +185,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float cut = 0.100537775223865f;
 
             if (in >= cut) {
-                return (_powf(10.0f, (in - d) / c) - b) / a;
+                return (powf(10.0f, (in - d) / c) - b) / a;
             } else {
                 return (in - f) / e;
             }
@@ -171,7 +202,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             const float cut = 0.100686685370811f;
 
             if (in >= cut) {
-                return (_powf(10.0f, (in - d) / c) - b) / a;
+                return (powf(10.0f, (in - d) / c) - b) / a;
             } else {
                 return (in - f) / e;
             }
@@ -187,7 +218,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             if (in < 0.0f) {
                 return (in / g) - c;
             } else {
-                return (_powf(10.0f, in / a) - 1.0f) / b - c;
+                return (powf(10.0f, in / a) - 1.0f) / b - c;
             }
         }
         case Sony_S_Log3:
@@ -205,7 +236,7 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             if (in >= cut1) {
                 float num = in * 1023.0f - 420.0f;
                 float exponent = num / 261.5f;
-                return _powf(a, exponent) * b + c;
+                return powf(a, exponent) * b + c;
             } else {
                 float num = in * 1023.0f - e;
                 return num * d / denom;
@@ -217,23 +248,23 @@ __DEVICE__ float gamma_to_linear(float in, GammaType gamma_type) {
             if (in < 0.081f) {
                 return in / 4.5f;
             } else {
-                return _powf((in + 0.099f) / 1.099f, 1.0f / 0.45f);
+                return powf((in + 0.099f) / 1.099f, 1.0f / 0.45f);
             }
         }
         case Gamma_2_2:
         {
             // Gamma 2.2 to Linear
-            return _powf(in, 2.2f);
+            return powf(in, 2.2f);
         }
         case Gamma_2_4:
         {
             // Gamma 2.4 to Linear
-            return _powf(in, 2.4f);
+            return powf(in, 2.4f);
         }
         case Gamma_2_6:
         {
             // Gamma 2.6 to Linear
-            return _powf(in, 2.6f);
+            return powf(in, 2.6f);
         }
         case Linear:
         default:
@@ -251,7 +282,7 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
             // Linear to ACEScc
             const float a   = 17.52f;
             const float b   = 9.72f;
-            const float c   = _powf(2.0f, -16.0f);
+            const float c   = powf(2.0f, -16.0f);
             const float cut = c * 0.5f;
 
             if (in <= 0.0f) {
@@ -322,7 +353,7 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
             if (in >= Rt) {
                 return y * _log2f(in + b) + d;
             } else if (in > R0) {
-                return c * _powf(in - R0, 2.0f);
+                return c * powf(in - R0, 2.0f);
             } else {
                 return 0.0f;
             }
@@ -416,23 +447,23 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
             if (in < 0.018f) {
                 return 4.5f * in;
             } else {
-                return 1.099f * _powf(in, 0.45f) - 0.099f;
+                return 1.099f * powf(in, 0.45f) - 0.099f;
             }
         }
         case Gamma_2_2:
         {
             // Linear to Gamma 2.2
-            return _powf(in, 1.0f / 2.2f);
+            return powf(in, 1.0f / 2.2f);
         }
         case Gamma_2_4:
         {
             // Linear to Gamma 2.4
-            return _powf(in, 1.0f / 2.4f);
+            return powf(in, 1.0f / 2.4f);
         }
         case Gamma_2_6:
         {
             // Linear to Gamma 2.6
-            return _powf(in, 1.0f / 2.6f);
+            return powf(in, 1.0f / 2.6f);
         }
         case Linear:
         default:
@@ -443,19 +474,48 @@ __DEVICE__ float linear_to_gamma(float in, GammaType gamma_type) {
     }
 }
 
-__DEVICE__ float3 apply_forward_ootf(float3 in) {
-    // Step 1: Convert linear light to rec709 gamma curve (not gamma 2.4)
-    in.x = linear_to_gamma(in.x, Rec709);
-    in.y = linear_to_gamma(in.y, Rec709);
-    in.z = linear_to_gamma(in.z, Rec709);
+// ===============================
+// SECTION 4: 🎢 Tone Mapping
+// Credit: This code was adapted from Thatcher Freeman's DCTL.
+// https://github.com/thatcherfreeman/utility-dctls/blob/main/Utilities/DaVinci%20Tone%20Mapping.dctl
+// It's similar to Resolve's tone mapping but not identical.
+// ===============================
 
-    // Step 2: Convert rec709 gamma curve to linear light as if it were gamma 2.4
-    in.x = gamma_to_linear(in.x, Gamma_2_4);
-    in.y = gamma_to_linear(in.y, Gamma_2_4);
-    in.z = gamma_to_linear(in.z, Gamma_2_4);
+__DEVICE__ float rolloff_function(float x, float a, float b) {
+    return a * (x / (x + b));
+}
+
+__DEVICE__ float3 tone_mapping(float3 in, float max_input_nits, float max_output_nits) {
+    float input_white = max_input_nits / 100.0;
+    float output_white = max_output_nits / 100.0;
+    float adaptation = 9.0;
+    float b = (input_white - (adaptation / 100.0) * (input_white / output_white)) / ((input_white / output_white) - 1);
+
+    // Clamp the input to the input white point
+    in.x = _fminf(in.x, input_white);
+    in.y = _fminf(in.y, input_white);
+    in.z = _fminf(in.z, input_white);
+
+    // Constraint 1: f(W_in) = W_out
+    float a = output_white / (input_white / (input_white + b));
+    if (input_white != output_white) {
+        in.x = rolloff_function(in.x, a, b);
+        in.y = rolloff_function(in.y, a, b);
+        in.z = rolloff_function(in.z, a, b);
+    }
+
+    // Clamp to the output white point
+    in.x = _clampf(in.x, 0.0f, output_white);
+    in.y = _clampf(in.y, 0.0f, output_white);
+    in.z = _clampf(in.z, 0.0f, output_white);
 
     return in;
 }
+
+
+// ===============================
+// SECTION 5: 🧩 Applying OOTF
+// ===============================
 
 __DEVICE__ float3 apply_inverse_ootf(float3 in) {
     // Step 1: Convert linear light to gamma 2.4
@@ -471,117 +531,174 @@ __DEVICE__ float3 apply_inverse_ootf(float3 in) {
     return in;
 }
 
-__DEVICE__ float convert_to_luminance(float3 in)
-{
-    // Convert RGB to luminance using Rec. 709 coefficients
-    float luminance = dot(in, make_float3(0.2126f, 0.7152f, 0.0722f));
 
-    return luminance;
-}
+// ===============================
+// SECTION 6: 🌵 Main Function
+// ===============================
 
 __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
 {
     float3 in = make_float3(p_R, p_G, p_B);
-    
-    // Step 1: Convert input gamma to linear light
-    in.x = gamma_to_linear(in.x, (GammaType)input_gamma);
-    in.y = gamma_to_linear(in.y, (GammaType)input_gamma);
-    in.z = gamma_to_linear(in.z, (GammaType)input_gamma);
-
-    // Inverse OOTF 
-    if (inverse_ootf) {
-        in = apply_inverse_ootf(in);
-    }
-
-    // Forward OOTF
-    if (forward_ootf) {
-        in = apply_forward_ootf(in);
-    }
-    // Convert the pixel color to luminance
-    float luminance = convert_to_luminance(in);
-
-    // Avoid zero or negative luminance to prevent log errors
-    luminance = _fmaxf(luminance, 0.000001f);
-
-    // Compute the stop difference from middle gray (0.18)
-    float n = _log2f(luminance / 0.18f);
-
-    // Initialize stop_difference
-    float stop_difference;
-
-    // Quantize n to the nearest 0.5 stop if within -1 to +1 stops
-    // if (n >= -1.0f && n <= 1.0f)
-    if (n >= -1.0f && n <= 1.0f)
-    {
-        stop_difference = _round(n * 2.0f) / 2.0f;
-    }
-    else
-    {
-        // Quantize to the nearest integer stop
-        stop_difference = _round(n);
-    }
-
-    // Clamp stop_difference between -8.0f and +8.0f
-    stop_difference = _clampf(stop_difference, -8.0f, 8.0f);
-
-    // Map the stop difference to specific colors
     float3 color;
 
-    if (stop_difference >= 7.0f) {
-        // +7 stops and above
-        color = make_float3(1.0f, 1.0f, 1.0f); // White (#FFFFFF)
-    } else if (stop_difference == 6.0f) {
-        // +6 stops
-        color = make_float3(0.9451f, 0.7490f, 0.7529f); // #F1BFC0
-    } else if (stop_difference == 5.0f) {
-        // +5 stops
-        color = make_float3(0.8980f, 0.4941f, 0.5490f); // #E57E8C
-    } else if (stop_difference == 4.5f) {
-        // +4 stops
-        color = make_float3(0.9373f, 0.1059f, 0.1490f); // #EF1B26
-    } else if (stop_difference == 3.0f) {
-        // +3 stops
-        color = make_float3(0.9686f, 0.6667f, 0.2784f); // #F7AA47
-    } else if (stop_difference == 2.0f) {
-        // +2 stops
-        color = make_float3(0.9569f, 0.4392f, 0.1647f); // #F4702A
-    } else if (stop_difference == 1.0f) {
-        // +1 stop
-        color = make_float3(1.0f, 0.9725f, 0.6510f); // #FFF8A6
-    } else if (stop_difference == 0.5f) {
-        // +0.5 stop
-        color = make_float3(0.9765f, 0.9137f, 0.0f); // #F9E900
-    } else if (stop_difference == 0.0f) {
-        // Middle gray
-        color = make_float3(0.5020f, 0.5020f, 0.5020f); // #808080
-    } else if (stop_difference == -0.5f) {
-        // -0.5 stop
-        color = make_float3(0.5804f, 0.7804f, 0.2588f); // #94C742
-    } else if (stop_difference == -1.0f) {
-        // -1 stop
-        color = make_float3(0.3686f, 0.7333f, 0.2784f); // #5EBB47
-    } else if (stop_difference == -2.0f) {
-        // -2 stops
-        color = make_float3(0.1059f, 0.6588f, 0.2941f); // #1BA84B
-    } else if (stop_difference == -3.0f) {
-        // -3 stops
-        color = make_float3(0.1490f, 0.6863f, 0.8941f); // #26AFE4
-    } else if (stop_difference == -4.0f) {
-        // -4 stops
-        color = make_float3(0.0902f, 0.4549f, 0.6549f); // #1774A7
-    } else if (stop_difference == -5.0f) {
-        // -5 stops
-        color = make_float3(0.6235f, 0.4980f, 0.7216f); // #9F7FB8
-    } else if (stop_difference == -6.0f) {
-        // -6 stops
-        color = make_float3(0.3843f, 0.2784f, 0.6078f); // #62479B
-    } else if (stop_difference <= -7.0f) {
-        // -7 stops and below
-        color = make_float3(0.0275f, 0.0275f, 0.0275f); // #070707
-    } else {
-        // Default color (should not reach here due to clamping)
-        color = make_float3(0.5f, 0.5f, 0.5f); // Gray
-    }
+    // Define chart width (10% of the image width)
+    float chart_width = p_Width * (chart_size / 100.0);
 
-    return color;
+    if (p_X >= chart_width || !show_chart) {
+         // Pixel is outside the chart area; process normally
+    
+        // Step 1: Convert input gamma to linear light
+        in.x = gamma_to_linear(in.x, (GammaType)input_gamma);
+        in.y = gamma_to_linear(in.y, (GammaType)input_gamma);
+        in.z = gamma_to_linear(in.z, (GammaType)input_gamma);
+
+        // Step 2: Apply Inverse OOTF if enabled
+        if (!is_scene_referred) {
+            in = apply_inverse_ootf(in);
+            in = tone_mapping(in, 100, 10000);
+        }
+
+        // Step 4: Calculate luminance
+        float luminance = dot(in, make_float3(0.2126f, 0.7152f, 0.0722f));
+        // Avoid zero or negative luminance to prevent log errors
+        luminance = _fmaxf(luminance, 0.000001f);
+
+        // Step 5: Compute the stops from middle gray (0.18)
+        float n = _log2f(luminance / 0.18f);
+
+        // Step 6: Quantize the stop
+        float stop;
+        if (n >= -1.0f && n <= 1.0f) {
+            // Quantize n to the nearest 0.5 stop if within -1 to +1 stops
+            stop = _round(n * 2.0f) / 2.0f;
+        }
+        else {
+            // Quantize to the nearest integer stop
+            stop = _round(n);
+        }
+
+        // Step 7: Clamp stop between -8.0f and +8.0f
+        stop = _clampf(stop, -8.0f, 8.0f);
+
+        // Step 8: Map the stop difference to specific colors
+        
+
+        if (stop >= 7.0f) {
+            // +7 stops and above
+            color = make_float3(1.0f, 1.0f, 1.0f); // White (#FFFFFF)
+        } else if (stop == 6.0f) {
+            // +6 stops
+            color = make_float3(0.9451f, 0.7490f, 0.7529f); // #F1BFC0
+        } else if (stop == 5.0f) {
+            // +5 stops
+            color = make_float3(0.8980f, 0.4941f, 0.5490f); // #E57E8C
+        } else if (stop == 4.0f) {
+            // +4 stops
+            color = make_float3(0.9373f, 0.1059f, 0.1490f); // #EF1B26
+        } else if (stop == 3.0f) {
+            // +3 stops
+            color = make_float3(0.9686f, 0.6667f, 0.2784f); // #F7AA47
+        } else if (stop == 2.0f) {  // +2 stops
+            color = make_float3(0.9569f, 0.4392f, 0.1647f); // #F4702A
+        } else if (stop == 1.0f) {
+            // +1 stop
+            color = make_float3(1.0f, 0.9725f, 0.6510f); // #FFF8A6
+        } else if (stop == 0.5f) {
+            // +0.5 stop
+            color = make_float3(0.9765f, 0.9137f, 0.0f); // #F9E900
+        } else if (stop == 0.0f) {
+            // Middle gray
+            color = make_float3(0.5020f, 0.5020f, 0.5020f); // #808080
+        } else if (stop == -0.5f) {
+            // -0.5 stop
+            color = make_float3(0.5804f, 0.7804f, 0.2588f); // #94C742
+        } else if (stop == -1.0f) {
+            // -1 stop
+            color = make_float3(0.3686f, 0.7333f, 0.2784f); // #5EBB47
+        } else if (stop == -2.0f) {
+            // -2 stops
+            color = make_float3(0.1059f, 0.6588f, 0.2941f); // #1BA84B
+        } else if (stop == -3.0f) {
+            // -3 stops
+            color = make_float3(0.1490f, 0.6863f, 0.8941f); // #26AFE4
+        } else if (stop == -4.0f) {
+            // -4 stops
+            color = make_float3(0.0902f, 0.4549f, 0.6549f); // #1774A7
+        } else if (stop == -5.0f) {
+            // -5 stops
+            color = make_float3(0.6235f, 0.4980f, 0.7216f); // #9F7FB8
+        } else if (stop == -6.0f) {
+            // -6 stops
+            color = make_float3(0.3843f, 0.2784f, 0.6078f); // #62479B
+        } else if (stop <= -7.0f) {
+            // -7 stops and below
+            color = make_float3(0.0275f, 0.0275f, 0.0275f); // #070707
+        } else {
+            // Default color (should not reach here due to clamping)
+            color = make_float3(0.5f, 0.5f, 0.5f); // Gray
+        }
+
+        return color;
+        
+
+    } else {
+        // Pixel is inside the chart area; process the chart
+        // Total number of stops (from -8 to +8)
+        const int total_stops = 17;
+
+        // Compute segment index (0 to 16)
+        int segment_index = (int)(p_Y * total_stops / p_Height);
+
+        // Clamp segment_index to valid range
+        segment_index = _clamp(segment_index, 0, total_stops - 1);
+
+        // Compute stop value (from +8 to -8)
+        float stop = 8.0f - (float)segment_index;
+
+        // Map stop to color
+        if (stop >= 8.0f) {
+            // +8 stops and above
+            color = make_float3(1.0f, 1.0f, 1.0f); // White (#FFFFFF)
+        } else if (stop == 7.0f) {
+            color = make_float3(0.9451f, 0.7490f, 0.7529f); // #F1BFC0
+        } else if (stop == 6.0f) {
+            color = make_float3(0.8980f, 0.4941f, 0.5490f); // #E57E8C
+        } else if (stop == 5.0f) {
+            color = make_float3(0.9373f, 0.1059f, 0.1490f); // #EF1B26
+        } else if (stop == 4.0f) {
+            color = make_float3(0.9686f, 0.6667f, 0.2784f); // #F7AA47
+        } else if (stop == 3.0f) {
+            color = make_float3(0.9569f, 0.4392f, 0.1647f); // #F4702A
+        } else if (stop == 2.0f) {
+            color = make_float3(1.0f, 0.9725f, 0.6510f); // #FFF8A6
+        } else if (stop == 1.0f) {
+            color = make_float3(0.9765f, 0.9137f, 0.0f); // #F9E900
+        } else if (stop == 0.0f) {
+            // Middle gray
+            color = make_float3(0.5020f, 0.5020f, 0.5020f); // #808080
+        } else if (stop == -1.0f) {
+            color = make_float3(0.5804f, 0.7804f, 0.2588f); // #94C742
+        } else if (stop == -2.0f) {
+            color = make_float3(0.3686f, 0.7333f, 0.2784f); // #5EBB47
+        } else if (stop == -3.0f) {
+            color = make_float3(0.1059f, 0.6588f, 0.2941f); // #1BA84B
+        } else if (stop == -4.0f) {
+            color = make_float3(0.1490f, 0.6863f, 0.8941f); // #26AFE4
+        } else if (stop == -5.0f) {
+            color = make_float3(0.0902f, 0.4549f, 0.6549f); // #1774A7
+        } else if (stop == -6.0f) {
+            color = make_float3(0.6235f, 0.4980f, 0.7216f); // #9F7FB8
+        } else if (stop == -7.0f) {
+            color = make_float3(0.3843f, 0.2784f, 0.6078f); // #62479B
+        } else if (stop <= -8.0f) {
+            // -8 stops and below
+            color = make_float3(0.0275f, 0.0275f, 0.0275f); // #070707
+        } else {
+            // Default color (should not reach here due to clamping)
+            color = make_float3(0.0f, 0.0f, 0.0f); // Black
+        }
+
+        // Return the color for the chart pixel
+        return color;
+    }
 }
