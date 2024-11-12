@@ -13,6 +13,9 @@ NOTE:
 Tone Mapping and Saturation Compression features are similar
 but not idential to those features in the Color Space Transform plugin.
 
+Here's a simpler, more copy-pastable version:
+https://github.com/Greyson-Sawyer/DCTL/blob/main/CST_simple.dctl
+
 
 PROCESS OVERVIEW:
 1. Convert input gamma --> linear.
@@ -24,9 +27,6 @@ PROCESS OVERVIEW:
 7. Apply forward OOTF (if enabled).
 8. Convert linear --> output gamma.
 
-
-For a simpler, more copy-pastable version, see:
-https://github.com/Greyson-Sawyer/DCTL/blob/main/CST_simple.dctl
 
 CREDITS:
 -Tone Mapping: Adapted from Thatcher Freeman's DCTL. 
