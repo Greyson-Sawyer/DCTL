@@ -52,7 +52,7 @@ DEFINE_UI_PARAMS(output_color_space, Output Color Space, DCTLUI_COMBO_BOX, 13, {
 DEFINE_UI_PARAMS(output_gamma, Output Gamma, DCTLUI_COMBO_BOX, 9, { og0, og1, og2, og3, og4, og5, og6, og7, og8, og9, og10, og11, og12, og13, og14 }, { ACEScc, ACEScct, Apple Log, ARRI LogC3, ARRI LogC4, DaVinci Intermediate, Fuji F-Log, Fuji F-Log2, Gamma 2.2, Gamma 2.4, Gamma 2.6, Linear, Rec.709, RED Log3G10, Sony S-Log3 })
 
 // Forward OOTF
-DEFINE_UI_PARAMS(forward_ootf, Apply Forward OOTF, DCTLUI_CHECK_BOX, 0)
+DEFINE_UI_PARAMS(forward_ootf, Apply Forward OOTF, DCTLUI_CHECK_BOX, 1)
 
 // Inverse OOTF
 DEFINE_UI_PARAMS(inverse_ootf, Apply Inverse OOTF, DCTLUI_CHECK_BOX, 0)
